@@ -34,7 +34,7 @@ label_to_category = {
 }
 
 labels = sorted(label_to_category.keys())
-label_idx = labels.index(label)
+label_idx = labels.index(label) if label != "NOTHING" else -1
 # label_to_idx = {l:i for i,l in enumerate(labels)}
 
 
@@ -45,11 +45,12 @@ video_path = f"./videos/{videoid}.mp4"
 cap = cv2.VideoCapture(video_path)
 # generator = sv.get_video_frames_generator(video_path)
 
-label_model = YOLOWorld(args.label_model)
-classes = [label_to_category[label]] # ["cat", "possum", "raccoon", "dog"]
-label_model.set_classes(classes)
+if label_idx != -1:
+    label_model = YOLOWorld(args.label_model)
+    classes = [label_to_category[label]] # ["cat", "possum", "raccoon", "dog"]
+    label_model.set_classes(classes)
 
-test_model = YOLO(args.my_model)
+    test_model = YOLO(args.my_model)
 
 img_idx = 0
 WHITE_BOX_ANNOTATOR = sv.BoxAnnotator(thickness=1, color=sv.Color.WHITE)
@@ -100,9 +101,15 @@ def generate_annotate_labels(detections, keep_label=False):
     return [f"{confidence:.2f}" for confidence in detections.confidence]  
 
 def save_img_and_label(frame, detections, img_idx):
+    if detections is None:
+        img_id = f"{videoid}_{str(img_idx).zfill(3)}"
+        cv2.imwrite(f"./{imgdir}/{img_id}.jpg", frame)
+        return img_idx + 1
+
     if len(detections) != 1:
         # TODO: support images with multiple detections. For now, skip them.
         return img_idx
+
     centerx, centery, width, height = convert_box(detections.xyxy)
     img_id = f"{videoid}_{str(img_idx).zfill(3)}"
     cv2.imwrite(f"./{imgdir}/{img_id}.jpg", frame)
@@ -121,6 +128,11 @@ while cap.isOpened():
         continue
 
     frame_cnt += 1
+
+    if label_idx == -1:
+        img_idx = save_img_and_label(frame, None, img_idx)
+        continue
+
     test_model_results = test_model(frame)[0]
     label_model_results = label_model(frame)[0]
     test_model_detections = sv.Detections.from_ultralytics(test_model_results)
