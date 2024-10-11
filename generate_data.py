@@ -4,18 +4,31 @@ from ultralytics import YOLOWorld, YOLO
 import argparse
 import json
 import supervision as sv
-# from datetime import datetime
 
-# today = str(datetime.now().date())
+"""
+Example: generate images with no object (for reducing false positives)
+$ python3 generate_data.py --imgdir=img20241010_01 --videoid=sunlight --label=NOTHING --autogen
+    
+Example: preview frames to get a feel of model performance
+$ python3 generate_data.py --videoid=xiaomao1010 --label=xiaomao --view-only
+
+Example: generate frames for a video clip known to be siama
+$ python3 generate_data.py --imgdir=img20241010_01 --videoid=siama2 --label=siama --autogen
+# Note: currently only support frames where only one object is detected. Frames with multiple objects or zero object are skipped.
+"""
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--videoid")
-parser.add_argument("--imgdir")
-parser.add_argument("--label-model", default="yolov8l-worldv2.pt")
-parser.add_argument("--my-model", default="../rpi-code/finetuned_ncnn_model")
-parser.add_argument("--label")
-parser.add_argument("--autogen", action="store_true")
-parser.add_argument("--view-only", action="store_true")
+parser.add_argument("--videoid", help="Stem of the video file. Assuming video is in ./video")
+parser.add_argument("--imgdir", help="Directory to save output images to. Not needed if --view-only.")
+parser.add_argument("--label-model", default="yolov8l-worldv2.pt", help="Model used to produce ground truth box given prompt")
+parser.add_argument("--my-model", default="../rpi-code/finetuned_ncnn_model", help="Current model, the performance of which to be evaluated")
+parser.add_argument("--label", help="Object in the video. e.g. siama, xiaomao. Must be a class of my-model.")
+
+# Modes: (1) view only (2) manual gen (3) auto gen (4) generate images with no label
+
+parser.add_argument("--view-only", action="store_true", help="If true, iterate through frames annotated with both models' prediction")
+parser.add_argument("--autogen", action="store_true", help="If true, generate a image+labeltxt for every frame in which label-model produces a prediction and my-model detects with confidence lower than the threshold below")
+parser.add_argument("--confidence-threshold-for-skipping", default=0.7, help="Threshold for counting a my-model's detection as good enough")
 
 args=parser.parse_args()
 
@@ -117,6 +130,10 @@ def save_img_and_label(frame, detections, img_idx):
         f.write(f"{label_idx} {centerx} {centery} {width} {height}")
     return img_idx + 1 
 
+def detected_target(detections):
+    filtered = detections[detections.class_id=label_idx]
+    return filtered.confidence.max() >= args.confidence_threshold_for_skipping
+
 frame_cnt = 0
 while cap.isOpened():
     ret, frame = cap.read()
@@ -151,7 +168,7 @@ while cap.isOpened():
     if args.view_only or args.autogen:
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
-        if args.autogen:
+        if args.autogen and not detected_target(test_model_detections):
             img_idx = save_img_and_label(frame, label_model_detections, img_idx)
         continue
 
